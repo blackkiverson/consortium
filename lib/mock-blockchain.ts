@@ -15,6 +15,11 @@ export interface Credential {
     issuanceDate: string;
     signature: string; // The cryptographic proof
     payload?: any; // For the demo, to store the actual data if needed, or just keep it off-chain
+    issuerAttachments?: Array<{
+        data: string;
+        filename: string;
+        timestamp: number;
+    }>;
 }
 
 export interface LedgerTransaction {
@@ -72,9 +77,10 @@ export class MockBlockchainService {
         return user;
     }
 
-    submitPortfolio(holderDid: string, artifactData: string): string {
-        // 1. Hash the artifact (Hybrid Storage: Data off-chain, Hash on-chain)
-        const artifactHash = hashData(artifactData);
+    submitPortfolio(holderDid: string, artifactDataArray: Array<{ data: string; filename: string }>): string {
+        // 1. Hash all artifacts combined
+        const combinedData = artifactDataArray.map(a => a.data).join('');
+        const artifactHash = hashData(combinedData);
 
         // 2. Record transaction
         this.recordTransaction({
@@ -82,19 +88,37 @@ export class MockBlockchainService {
             timestamp: Date.now(),
             dataHash: artifactHash,
             actor: holderDid,
-            details: { artifactHash, artifactData } // In real world, this might be an IPFS CID
+            details: { artifactHash, artifactDataArray } // Store all files
         });
 
         return artifactHash;
     }
 
-    mintCredential(issuerDid: string, holderDid: string, artifactHash: string, privateKey: string): Credential {
+    mintCredential(
+        issuerDid: string,
+        holderDid: string,
+        artifactHash: string,
+        privateKey: string,
+        issuerAttachmentsArray?: Array<{ data: string; filename: string }>
+    ): Credential {
         // 1. Create Credential Payload
         const credentialId = `vc:${hashData(Date.now().toString() + holderDid)}`;
         const issuanceDate = new Date().toISOString();
 
-        // 2. Sign the hash (Issuer signs the artifact hash + metadata)
-        const dataToSign = credentialId + issuerDid + holderDid + artifactHash + issuanceDate;
+        // 2. Prepare issuer attachments if provided
+        const issuerAttachments = issuerAttachmentsArray && issuerAttachmentsArray.length > 0 ?
+            issuerAttachmentsArray.map(att => ({
+                data: att.data,
+                filename: att.filename,
+                timestamp: Date.now()
+            })) : undefined;
+
+        // 3. Sign the hash (Issuer signs the artifact hash + metadata + attachments if present)
+        let dataToSign = credentialId + issuerDid + holderDid + artifactHash + issuanceDate;
+        if (issuerAttachments) {
+            const attachmentsHash = hashData(issuerAttachments.map(a => a.data).join(''));
+            dataToSign += attachmentsHash;
+        }
         const signature = signData(dataToSign, privateKey);
 
         const credential: Credential = {
@@ -103,14 +127,15 @@ export class MockBlockchainService {
             holderDid,
             artifactHash,
             issuanceDate,
-            signature
+            signature,
+            issuerAttachments
         };
 
-        // 3. Store in Registry (On-chain or State)
+        // 4. Store in Registry (On-chain or State)
         // In this mock, we store the valid credential hash or the credential itself if it's a public registry
         this.credentialRegistry.set(credentialId, credential);
 
-        // 4. Record Transaction
+        // 5. Record Transaction
         this.recordTransaction({
             type: 'VC_ISSUANCE',
             timestamp: Date.now(),
@@ -132,11 +157,12 @@ export class MockBlockchainService {
                 return { verified: false, reason: "Issuer DID not found in Registry" };
             }
 
-            // 2. Verify Signature
-            const dataToVerify = credential.id + credential.issuerDid + credential.holderDid + credential.artifactHash + credential.issuanceDate;
-            // In our mock, verifySignature just returns true, but we can add logic if we want
-            // For now, we assume if the signature is present and matches our mock format (if we enforced it), it's good.
-            // Let's use the helper.
+            // 2. Verify Signature (including attachments if present)
+            let dataToVerify = credential.id + credential.issuerDid + credential.holderDid + credential.artifactHash + credential.issuanceDate;
+            if (credential.issuerAttachments && credential.issuerAttachments.length > 0) {
+                const attachmentsHash = hashData(credential.issuerAttachments.map(a => a.data).join(''));
+                dataToVerify += attachmentsHash;
+            }
             const isValidSignature = verifySignature(dataToVerify, credential.signature, issuerPublicKey);
 
             if (!isValidSignature) {

@@ -153,16 +153,69 @@ export default function VerifierPortal() {
                                                     : `Reason: ${verificationResult.reason}`
                                                 }
                                             </p>
-                                            {verificationResult.verified && (
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={() => handleViewArtifact()}
-                                                    className="mt-2 text-green-700 border-green-300 hover:bg-green-100"
-                                                >
-                                                    <FileText className="w-4 h-4 mr-2" />
-                                                    View Original Artifact
-                                                </Button>
-                                            )}
+                                            {verificationResult.verified && (() => {
+                                                try {
+                                                    const credential = JSON.parse(jsonInput);
+                                                    const artifactHash = credential.artifactHash;
+                                                    const submission = ledger.find(tx =>
+                                                        tx.type === 'PORTFOLIO_SUBMISSION' &&
+                                                        tx.dataHash === artifactHash
+                                                    );
+                                                    const issuerAttachments = credential.issuerAttachments;
+
+                                                    return (
+                                                        <div className="mt-3 space-y-3">
+                                                            {submission?.details?.artifactDataArray && submission.details.artifactDataArray.length > 0 && (
+                                                                <div>
+                                                                    <p className="text-xs font-medium text-green-700 mb-2">Student Documents ({submission.details.artifactDataArray.length}):</p>
+                                                                    <div className="space-y-1">
+                                                                        {submission.details.artifactDataArray.map((artifact: any, idx: number) => (
+                                                                            <Button
+                                                                                key={idx}
+                                                                                variant="outline"
+                                                                                onClick={() => setViewingArtifact(artifact.data)}
+                                                                                className="text-green-700 border-green-300 hover:bg-green-100 w-full justify-start"
+                                                                            >
+                                                                                <FileText className="w-4 h-4 mr-2" />
+                                                                                {artifact.filename}
+                                                                            </Button>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            {issuerAttachments && issuerAttachments.length > 0 && (
+                                                                <div>
+                                                                    <p className="text-xs font-medium text-purple-700 mb-2">Issuer Documents ({issuerAttachments.length}):</p>
+                                                                    <div className="space-y-1">
+                                                                        {issuerAttachments.map((attachment: any, idx: number) => (
+                                                                            <Button
+                                                                                key={idx}
+                                                                                variant="outline"
+                                                                                onClick={() => setViewingArtifact(attachment.data)}
+                                                                                className="text-purple-700 border-purple-300 hover:bg-purple-100 w-full justify-start"
+                                                                            >
+                                                                                <FileText className="w-4 h-4 mr-2" />
+                                                                                {attachment.filename}
+                                                                            </Button>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                } catch {
+                                                    return (
+                                                        <Button
+                                                            variant="outline"
+                                                            onClick={() => handleViewArtifact()}
+                                                            className="mt-2 text-green-700 border-green-300 hover:bg-green-100"
+                                                        >
+                                                            <FileText className="w-4 h-4 mr-2" />
+                                                            View Original Artifact
+                                                        </Button>
+                                                    );
+                                                }
+                                            })()}
                                         </div>
                                     </div>
                                 </div>
@@ -191,12 +244,49 @@ export default function VerifierPortal() {
                                         <p className="text-xs text-gray-600 mb-2 truncate" title={item.credential.holderDid}>
                                             Holder: {item.credential.holderDid}
                                         </p>
-                                        <button
-                                            onClick={() => handleViewArtifact(JSON.stringify(item.credential))}
-                                            className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                                        >
-                                            <FileText className="w-3 h-3" /> View Artifact
-                                        </button>
+                                        <div className="space-y-1">
+                                            {(() => {
+                                                const artifactHash = item.credential.artifactHash;
+                                                const submission = ledger.find(tx =>
+                                                    tx.type === 'PORTFOLIO_SUBMISSION' &&
+                                                    tx.dataHash === artifactHash
+                                                );
+                                                const issuerAttachments = item.credential.issuerAttachments;
+
+                                                return (
+                                                    <>
+                                                        {submission?.details?.artifactDataArray && submission.details.artifactDataArray.length > 0 && (
+                                                            <div className="space-y-1">
+                                                                <p className="text-xs font-medium text-blue-700">Student Docs ({submission.details.artifactDataArray.length}):</p>
+                                                                {submission.details.artifactDataArray.map((artifact: any, idx: number) => (
+                                                                    <button
+                                                                        key={idx}
+                                                                        onClick={() => setViewingArtifact(artifact.data)}
+                                                                        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                                                                    >
+                                                                        <FileText className="w-3 h-3" /> {artifact.filename}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {issuerAttachments && issuerAttachments.length > 0 && (
+                                                            <div className="space-y-1">
+                                                                <p className="text-xs font-medium text-purple-700">Issuer Docs ({issuerAttachments.length}):</p>
+                                                                {issuerAttachments.map((attachment: any, idx: number) => (
+                                                                    <button
+                                                                        key={idx}
+                                                                        onClick={() => setViewingArtifact(attachment.data)}
+                                                                        className="text-xs text-purple-600 hover:underline flex items-center gap-1"
+                                                                    >
+                                                                        <FileText className="w-3 h-3" /> {attachment.filename}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
                                     </div>
                                 ))}
                                 {verificationHistory.length === 0 && (

@@ -8,7 +8,7 @@ import ArtifactViewer from './ArtifactViewer';
 
 export default function HolderDashboard() {
     const { currentUser, registerUser, submitPortfolio, ledger, users, login } = useLedgerStore();
-    const [file, setFile] = useState<File | null>(null);
+    const [files, setFiles] = useState<File[]>([]);
     const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success'>('idle');
     const [viewingArtifact, setViewingArtifact] = useState<string | null>(null);
 
@@ -53,28 +53,36 @@ export default function HolderDashboard() {
     }
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            setFile(e.target.files[0]);
+        if (e.target.files && e.target.files.length > 0) {
+            setFiles(Array.from(e.target.files));
         }
     };
 
+    const handleRemoveFile = (index: number) => {
+        setFiles(files.filter((_, i) => i !== index));
+    };
+
     const handleSubmit = async () => {
-        if (!file) return;
+        if (files.length === 0) return;
         setUploadStatus('uploading');
 
-        // Simulate file read
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const content = e.target?.result as string;
-            // In real app, upload to IPFS here. 
-            // For demo, we just pass the content (or a mock URL/hash of it) to the ledger store
-            // which will hash it.
-            submitPortfolio(content); // This creates the transaction
-            setUploadStatus('success');
-            setTimeout(() => setUploadStatus('idle'), 2000);
-            setFile(null);
-        };
-        reader.readAsDataURL(file);
+        // Read all files
+        const filePromises = files.map(file => {
+            return new Promise<{ data: string; filename: string }>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const content = e.target?.result as string;
+                    resolve({ data: content, filename: file.name });
+                };
+                reader.readAsDataURL(file);
+            });
+        });
+
+        const artifactDataArray = await Promise.all(filePromises);
+        submitPortfolio(artifactDataArray);
+        setUploadStatus('success');
+        setTimeout(() => setUploadStatus('idle'), 2000);
+        setFiles([]);
     };
 
     const handleCopyCredential = (credential: any) => {
@@ -103,7 +111,7 @@ export default function HolderDashboard() {
         type: 'pending' | 'verified';
         id: string;
         timestamp: number;
-        artifactData: string;
+        artifactDataArray?: Array<{ data: string; filename: string }>;
         title: string;
         issuer: string;
         credential?: any;
@@ -117,7 +125,7 @@ export default function HolderDashboard() {
                 type: 'pending' as const,
                 id: sub.dataHash,
                 timestamp: sub.timestamp,
-                artifactData: sub.details?.artifactData,
+                artifactDataArray: sub.details?.artifactDataArray,
                 title: 'Pending Review',
                 issuer: 'Waiting for Issuer...'
             })),
@@ -126,7 +134,7 @@ export default function HolderDashboard() {
             type: 'verified' as const,
             id: vc.dataHash,
             timestamp: vc.timestamp,
-            artifactData: mySubmissions.find(s => s.dataHash === vc.details?.credential?.artifactHash)?.details?.artifactData, // Look up original data
+            artifactDataArray: mySubmissions.find(s => s.dataHash === vc.details?.credential?.artifactHash)?.details?.artifactDataArray,
             title: 'Verified Credential',
             issuer: `Issuer: ${vc.actor.substring(0, 20)}...`,
             credential: vc.details.credential
@@ -162,17 +170,33 @@ export default function HolderDashboard() {
                                 onChange={handleFileChange}
                                 className="hidden"
                                 id="portfolio-upload"
+                                multiple
                             />
                             <label htmlFor="portfolio-upload" className="cursor-pointer flex flex-col items-center gap-2">
                                 <FileText className="w-8 h-8 text-gray-400" />
                                 <span className="text-sm text-gray-600">
-                                    {file ? file.name : "Click to upload artifact"}
+                                    {files.length > 0 ? `${files.length} file(s) selected` : "Click to upload documents (multiple allowed)"}
                                 </span>
                             </label>
                         </div>
+                        {files.length > 0 && (
+                            <div className="space-y-2">
+                                {files.map((f, index) => (
+                                    <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded border">
+                                        <span className="text-xs text-gray-700 truncate flex-1">{f.name}</span>
+                                        <button
+                                            onClick={() => handleRemoveFile(index)}
+                                            className="text-xs text-red-600 hover:text-red-800 ml-2"
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                         <Button
                             className="w-full"
-                            disabled={!file || uploadStatus === 'uploading'}
+                            disabled={files.length === 0 || uploadStatus === 'uploading'}
                             onClick={handleSubmit}
                         >
                             {uploadStatus === 'uploading' ? 'Hashing & Submitting...' : 'Submit to Ledger'}
@@ -207,7 +231,7 @@ export default function HolderDashboard() {
                                             }`}
                                     >
                                         <div className="flex justify-between items-start">
-                                            <div>
+                                            <div className="flex-1">
                                                 <h4 className={`font-medium ${item.type === 'verified' ? 'text-green-900' : 'text-yellow-800'
                                                     }`}>
                                                     {item.title}
@@ -216,15 +240,37 @@ export default function HolderDashboard() {
                                                     }`}>
                                                     {item.issuer}
                                                 </p>
-                                                {item.artifactData && (
-                                                    <button
-                                                        onClick={() => setViewingArtifact(item.artifactData)}
-                                                        className={`text-xs hover:underline flex items-center gap-1 mt-2 ${item.type === 'verified' ? 'text-green-600' : 'text-yellow-600'
-                                                            }`}
-                                                    >
-                                                        <FileText className="w-3 h-3" /> View Artifact
-                                                    </button>
-                                                )}
+                                                <div className="mt-2 space-y-1">
+                                                    {item.artifactDataArray && item.artifactDataArray.length > 0 && (
+                                                        <div className="space-y-1">
+                                                            <p className="text-xs font-medium text-gray-600">My Documents ({item.artifactDataArray.length}):</p>
+                                                            {item.artifactDataArray.map((artifact, idx) => (
+                                                                <button
+                                                                    key={idx}
+                                                                    onClick={() => setViewingArtifact(artifact.data)}
+                                                                    className={`text-xs hover:underline flex items-center gap-1 ${item.type === 'verified' ? 'text-green-600' : 'text-yellow-600'
+                                                                        }`}
+                                                                >
+                                                                    <FileText className="w-3 h-3" /> {artifact.filename}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    {item.type === 'verified' && item.credential?.issuerAttachments && item.credential.issuerAttachments.length > 0 && (
+                                                        <div className="space-y-1 mt-2">
+                                                            <p className="text-xs font-medium text-purple-600">Issuer Documents ({item.credential.issuerAttachments.length}):</p>
+                                                            {item.credential.issuerAttachments.map((attachment: any, idx: number) => (
+                                                                <button
+                                                                    key={idx}
+                                                                    onClick={() => setViewingArtifact(attachment.data)}
+                                                                    className="text-xs hover:underline flex items-center gap-1 text-purple-600"
+                                                                >
+                                                                    <FileText className="w-3 h-3" /> {attachment.filename}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                             <div className="flex gap-2">
                                                 {item.type === 'verified' && (

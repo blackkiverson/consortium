@@ -16,8 +16,8 @@ interface LedgerState {
     switchView: (view: 'HOLDER' | 'ISSUER' | 'VERIFIER' | 'HOME') => void;
     registerUser: (role: 'HOLDER' | 'ISSUER' | 'VERIFIER') => void;
     login: (did: string) => void;
-    submitPortfolio: (artifactData: string) => void;
-    mintCredential: (holderDid: string, artifactHash: string) => void;
+    submitPortfolio: (artifactDataArray: Array<{ data: string; filename: string }>) => void;
+    mintCredential: (holderDid: string, artifactHash: string, issuerAttachmentsArray?: Array<{ data: string; filename: string }>) => void;
     verifyCredential: (json: string) => { verified: boolean; reason?: string; issuer?: string };
 
     // Helper to sync state from service
@@ -87,23 +87,23 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         }
     },
 
-    submitPortfolio: (artifactData) => {
+    submitPortfolio: (artifactDataArray) => {
         const { blockchain, currentUser } = get();
         if (!currentUser || currentUser.role !== 'HOLDER') {
             console.error("Only Holders can submit portfolios");
             return;
         }
-        blockchain.submitPortfolio(currentUser.did, artifactData);
+        blockchain.submitPortfolio(currentUser.did, artifactDataArray);
         get().sync();
     },
 
-    mintCredential: (holderDid, artifactHash) => {
+    mintCredential: (holderDid, artifactHash, issuerAttachmentsArray?) => {
         const { blockchain, currentUser } = get();
         if (!currentUser || currentUser.role !== 'ISSUER') {
             console.error("Only Issuers can mint credentials");
             return;
         }
-        blockchain.mintCredential(currentUser.did, holderDid, artifactHash, currentUser.privateKey);
+        blockchain.mintCredential(currentUser.did, holderDid, artifactHash, currentUser.privateKey, issuerAttachmentsArray);
         get().sync();
     },
 

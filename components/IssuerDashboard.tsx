@@ -9,6 +9,7 @@ import ArtifactViewer from './ArtifactViewer';
 export default function IssuerDashboard() {
     const { currentUser, registerUser, mintCredential, ledger, users, login } = useLedgerStore();
     const [viewingArtifact, setViewingArtifact] = React.useState<string | null>(null);
+    const [attachments, setAttachments] = React.useState<Map<string, Array<{ file: File; data: string }>>>(new Map());
 
     const existingIssuers = users.filter(u => u.role === 'ISSUER');
 
@@ -70,8 +71,51 @@ export default function IssuerDashboard() {
 
 
 
+    const handleFileChange = (submissionHash: string, e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            const files = Array.from(e.target.files);
+            const filePromises = files.map(file => {
+                return new Promise<{ file: File; data: string }>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const data = event.target?.result as string;
+                        resolve({ file, data });
+                    };
+                    reader.readAsDataURL(file);
+                });
+            });
+
+            Promise.all(filePromises).then(fileDataArray => {
+                const newAttachments = new Map(attachments);
+                const existing = newAttachments.get(submissionHash) || [];
+                newAttachments.set(submissionHash, [...existing, ...fileDataArray]);
+                setAttachments(newAttachments);
+            });
+        }
+    };
+
+    const handleRemoveAttachment = (submissionHash: string, index: number) => {
+        const newAttachments = new Map(attachments);
+        const files = newAttachments.get(submissionHash) || [];
+        newAttachments.set(submissionHash, files.filter((_, i) => i !== index));
+        setAttachments(newAttachments);
+    };
+
     const handleMint = (holderDid: string, artifactHash: string) => {
-        mintCredential(holderDid, artifactHash);
+        const attachmentArray = attachments.get(artifactHash);
+        if (attachmentArray && attachmentArray.length > 0) {
+            const issuerAttachmentsArray = attachmentArray.map(att => ({
+                data: att.data,
+                filename: att.file.name
+            }));
+            mintCredential(holderDid, artifactHash, issuerAttachmentsArray);
+            // Clear the attachments after minting
+            const newAttachments = new Map(attachments);
+            newAttachments.delete(artifactHash);
+            setAttachments(newAttachments);
+        } else {
+            mintCredential(holderDid, artifactHash);
+        }
     };
 
     return (
@@ -109,20 +153,59 @@ export default function IssuerDashboard() {
                                                 </div>
                                                 <p className="text-xs text-gray-500">Student DID: {tx.actor}</p>
                                                 <p className="text-xs text-gray-500">Artifact Hash: {tx.dataHash.substring(0, 20)}...</p>
-                                                <button
-                                                    onClick={() => setViewingArtifact(tx.details?.artifactData)}
-                                                    className="text-xs text-blue-600 hover:underline flex items-center gap-1 mt-1"
-                                                >
-                                                    <FileText className="w-3 h-3" /> View Artifact
-                                                </button>
+
+                                                {/* Student Documents */}
+                                                {tx.details?.artifactDataArray && tx.details.artifactDataArray.length > 0 && (
+                                                    <div className="mt-2 space-y-1">
+                                                        <p className="text-xs font-medium text-gray-700">Student Documents ({tx.details.artifactDataArray.length}):</p>
+                                                        {tx.details.artifactDataArray.map((artifact: any, idx: number) => (
+                                                            <button
+                                                                key={idx}
+                                                                onClick={() => setViewingArtifact(artifact.data)}
+                                                                className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                                                            >
+                                                                <FileText className="w-3 h-3" /> {artifact.filename}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
-                                            <Button
-                                                onClick={() => handleMint(tx.actor, tx.dataHash)}
-                                                className="gap-2 bg-purple-600 hover:bg-purple-700"
-                                            >
-                                                <ShieldCheck className="w-4 h-4" />
-                                                Approve & Mint VC
-                                            </Button>
+                                            <div className="space-y-2">
+                                                <div className="border-t pt-3 mt-2">
+                                                    <label className="text-xs font-medium text-gray-700 block mb-2">
+                                                        Attach Authentication Documents (Optional, Multiple Allowed)
+                                                    </label>
+                                                    <input
+                                                        type="file"
+                                                        onChange={(e) => handleFileChange(tx.dataHash, e)}
+                                                        className="text-xs w-full file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                                                        multiple
+                                                    />
+                                                    {attachments.get(tx.dataHash) && attachments.get(tx.dataHash)!.length > 0 && (
+                                                        <div className="mt-2 space-y-1">
+                                                            <p className="text-xs font-medium text-purple-700">Selected ({attachments.get(tx.dataHash)!.length}):</p>
+                                                            {attachments.get(tx.dataHash)!.map((att, idx) => (
+                                                                <div key={idx} className="flex items-center justify-between p-1 bg-purple-50 rounded">
+                                                                    <span className="text-xs text-purple-700 truncate flex-1">{att.file.name}</span>
+                                                                    <button
+                                                                        onClick={() => handleRemoveAttachment(tx.dataHash, idx)}
+                                                                        className="text-xs text-red-600 hover:text-red-800 ml-2"
+                                                                    >
+                                                                        Remove
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <Button
+                                                    onClick={() => handleMint(tx.actor, tx.dataHash)}
+                                                    className="gap-2 bg-purple-600 hover:bg-purple-700 w-full"
+                                                >
+                                                    <ShieldCheck className="w-4 h-4" />
+                                                    Approve & Mint VC
+                                                </Button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -161,15 +244,40 @@ export default function IssuerDashboard() {
                                             {(() => {
                                                 const artifactHash = tx.details?.credential?.artifactHash;
                                                 const submission = ledger.find(s => s.type === 'PORTFOLIO_SUBMISSION' && s.dataHash === artifactHash);
+                                                const issuerAttachments = tx.details?.credential?.issuerAttachments;
 
-                                                return submission?.details?.artifactData ? (
-                                                    <button
-                                                        onClick={() => setViewingArtifact(submission.details.artifactData)}
-                                                        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                                                    >
-                                                        <FileText className="w-3 h-3" /> View Artifact
-                                                    </button>
-                                                ) : null;
+                                                return (
+                                                    <div className="space-y-2">
+                                                        {submission?.details?.artifactDataArray && submission.details.artifactDataArray.length > 0 && (
+                                                            <div className="space-y-1">
+                                                                <p className="text-xs font-medium text-blue-700">Student Documents ({submission.details.artifactDataArray.length}):</p>
+                                                                {submission.details.artifactDataArray.map((artifact: any, idx: number) => (
+                                                                    <button
+                                                                        key={idx}
+                                                                        onClick={() => setViewingArtifact(artifact.data)}
+                                                                        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                                                                    >
+                                                                        <FileText className="w-3 h-3" /> {artifact.filename}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {issuerAttachments && issuerAttachments.length > 0 && (
+                                                            <div className="space-y-1">
+                                                                <p className="text-xs font-medium text-purple-700">Issuer Documents ({issuerAttachments.length}):</p>
+                                                                {issuerAttachments.map((attachment: any, idx: number) => (
+                                                                    <button
+                                                                        key={idx}
+                                                                        onClick={() => setViewingArtifact(attachment.data)}
+                                                                        className="text-xs text-purple-600 hover:underline flex items-center gap-1"
+                                                                    >
+                                                                        <FileText className="w-3 h-3" /> {attachment.filename}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
                                             })()}
                                         </div>
                                     ))}
