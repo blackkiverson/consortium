@@ -173,7 +173,7 @@ export default function IssuerDashboard() {
                                             <div className="space-y-2">
                                                 <div className="border-t pt-3 mt-2">
                                                     <label className="text-xs font-medium text-gray-700 block mb-2">
-                                                        Attach Authentication Documents (Optional, Multiple Allowed)
+                                                        Attach Authenticated Artifacts (Optional, Multiple Allowed)
                                                     </label>
                                                     <input
                                                         type="file"
