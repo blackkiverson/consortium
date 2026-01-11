@@ -97,6 +97,7 @@ erDiagram
 This comprehensive sequence diagram shows the full journey from student portfolio submission, through issuer minting with attachments, to verifier receiving and validating the credential.
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#fff','primaryTextColor':'#000','primaryBorderColor':'#000','lineColor':'#000','secondaryColor':'#f4f4f4','tertiaryColor':'#fff','actorTextColor':'#000','actorLineColor':'#000','signalColor':'#000','signalTextColor':'#000','labelBoxBkgColor':'#f4f4f4','labelBoxBorderColor':'#000','labelTextColor':'#000','loopTextColor':'#000','noteBorderColor':'#000','noteTextColor':'#000','activationBorderColor':'#000','sequenceNumberColor':'#fff'}}}%%
 sequenceDiagram
     autonumber
     participant H as Holder (Student)
