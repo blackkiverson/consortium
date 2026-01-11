@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { MockBlockchainService, User, LedgerTransaction, Credential } from '../lib/mock-blockchain';
+import { MockBlockchainService, User, LedgerTransaction, Credential, StudentProfile, OrganizationProfile } from '../lib/mock-blockchain';
 
 interface LedgerState {
     blockchain: MockBlockchainService;
@@ -14,11 +14,18 @@ interface LedgerState {
     // Actions
     init: () => void;
     switchView: (view: 'HOLDER' | 'ISSUER' | 'VERIFIER' | 'HOME') => void;
-    registerUser: (role: 'HOLDER' | 'ISSUER' | 'VERIFIER') => void;
+    registerUser: (
+        type: 'STUDENT' | 'ORGANIZATION',
+        role: 'HOLDER' | 'ISSUER' | 'VERIFIER',
+        profile: StudentProfile | OrganizationProfile
+    ) => void;
     login: (did: string) => void;
-    submitPortfolio: (artifactDataArray: Array<{ data: string; filename: string }>) => void;
+    logout: () => void;
+    switchOrganizationRole: (role: 'ISSUER' | 'VERIFIER') => void;
+    submitPortfolio: (artifactDataArray: Array<{ data: string; filename: string }>, targetOrgDid: string) => void;
     mintCredential: (holderDid: string, artifactHash: string, issuerAttachmentsArray?: Array<{ data: string; filename: string }>) => void;
     verifyCredential: (json: string) => { verified: boolean; reason?: string; issuer?: string };
+    forwardCredential: (verifierDid: string, credential: Credential, message: string) => void;
 
     // Helper to sync state from service
     sync: () => void;
@@ -72,9 +79,9 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         });
     },
 
-    registerUser: (role) => {
+    registerUser: (type, role, profile) => {
         const { blockchain } = get();
-        const user = blockchain.registerDID(role);
+        const user = blockchain.registerDID(type, role, profile);
         set({ currentUser: user });
         get().sync();
     },
@@ -83,17 +90,31 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         const { users } = get();
         const user = users.find(u => u.did === did);
         if (user) {
-            set({ currentUser: user });
+            set({ currentUser: user, currentView: user.role });
         }
     },
 
-    submitPortfolio: (artifactDataArray) => {
+    logout: () => {
+        set({ currentUser: null, currentView: 'HOME' });
+    },
+
+    switchOrganizationRole: (role) => {
+        const { currentUser } = get();
+        if (currentUser && currentUser.type === 'ORGANIZATION') {
+            set((state) => ({
+                currentUser: { ...currentUser, role },
+                currentView: role as 'ISSUER' | 'VERIFIER'
+            }));
+        }
+    },
+
+    submitPortfolio: (artifactDataArray, targetOrgDid) => {
         const { blockchain, currentUser } = get();
         if (!currentUser || currentUser.role !== 'HOLDER') {
             console.error("Only Holders can submit portfolios");
             return;
         }
-        blockchain.submitPortfolio(currentUser.did, artifactDataArray);
+        blockchain.submitPortfolio(currentUser.did, artifactDataArray, targetOrgDid);
         get().sync();
     },
 
@@ -110,6 +131,16 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     verifyCredential: (json) => {
         const { blockchain } = get();
         return blockchain.verifyCredential(json);
+    },
+
+    forwardCredential: (verifierDid, credential, message) => {
+        const { blockchain, currentUser } = get();
+        if (!currentUser || currentUser.role !== 'HOLDER') {
+            console.error("Only Holders can forward credentials");
+            return;
+        }
+        blockchain.forwardCredential(currentUser.did, verifierDid, credential, message);
+        get().sync();
     },
 
     verificationHistory: [],

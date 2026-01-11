@@ -5,16 +5,21 @@ import { useLedgerStore } from '../store/ledger';
 import HolderDashboard from '../components/HolderDashboard';
 import IssuerDashboard from '../components/IssuerDashboard';
 import VerifierPortal from '../components/VerifierPortal';
+import Auth from '../components/Auth';
 import { cn } from '../components/ui/components';
 
 export default function Home() {
-  const { currentView, switchView, init } = useLedgerStore();
+  const { currentView, switchView, init, currentUser, logout, switchOrganizationRole } = useLedgerStore();
 
   useEffect(() => {
     init();
   }, [init]);
 
   const renderView = () => {
+    if (!currentUser) {
+      return <Auth />;
+    }
+
     switch (currentView) {
       case 'HOLDER':
         return <HolderDashboard />;
@@ -25,28 +30,14 @@ export default function Home() {
       default:
         return (
           <div className="text-center py-20">
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">Consortium DLT</h1>
-            <p className="text-xl text-gray-600 mb-8">Decentralized Credentialing System Demo</p>
-            <div className="flex justify-center gap-4">
-              <button
-                onClick={() => switchView('HOLDER')}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Student Portal
-              </button>
-              <button
-                onClick={() => switchView('ISSUER')}
-                className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                University Portal
-              </button>
-              <button
-                onClick={() => switchView('VERIFIER')}
-                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              >
-                Verifier Portal
-              </button>
-            </div>
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">Welcome back, {(currentUser.profile as any).name}</h1>
+            <p className="text-xl text-gray-600 mb-8">Access your {currentUser.type.toLowerCase()} dashboard</p>
+            <button
+              onClick={() => switchView(currentUser.role)}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Go to Dashboard
+            </button>
           </div>
         );
     }
@@ -62,23 +53,33 @@ export default function Home() {
             <span className="font-bold text-xl text-gray-900">Consortium</span>
           </div>
 
-          {currentView !== 'HOME' && (
-            <nav className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
-              {(['HOLDER', 'ISSUER', 'VERIFIER'] as const).map((view) => (
-                <button
-                  key={view}
-                  onClick={() => switchView(view)}
-                  className={cn(
-                    "px-3 py-1.5 text-sm font-medium rounded-md transition-all",
-                    currentView === view
-                      ? "bg-white text-gray-900 shadow-sm"
-                      : "text-gray-500 hover:text-gray-900"
-                  )}
-                >
-                  {view.charAt(0) + view.slice(1).toLowerCase()}
-                </button>
-              ))}
-            </nav>
+          {currentUser && (
+            <div className="flex items-center gap-4">
+              {currentUser.type === 'ORGANIZATION' && (
+                <nav className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
+                  {(['ISSUER', 'VERIFIER'] as const).map((role) => (
+                    <button
+                      key={role}
+                      onClick={() => switchOrganizationRole(role)}
+                      className={cn(
+                        "px-3 py-1.5 text-sm font-medium rounded-md transition-all",
+                        currentUser.role === role
+                          ? "bg-white text-gray-900 shadow-sm"
+                          : "text-gray-500 hover:text-gray-900"
+                      )}
+                    >
+                      {role === 'ISSUER' ? 'Issuer' : 'Verifier'}
+                    </button>
+                  ))}
+                </nav>
+              )}
+              <button
+                onClick={logout}
+                className="text-sm font-medium text-red-600 hover:text-red-700"
+              >
+                Logout
+              </button>
+            </div>
           )}
         </div>
       </header>

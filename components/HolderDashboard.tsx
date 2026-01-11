@@ -2,15 +2,23 @@
 
 import React, { useState } from 'react';
 import { useLedgerStore } from '../store/ledger';
-import { Button, Card, CardContent, CardHeader, CardTitle, Input } from './ui/components';
+import { Button, Card, CardContent, CardHeader, CardTitle, Input, Textarea } from './ui/components';
 import { Upload, FileText, CheckCircle, Share2, Wallet } from 'lucide-react';
 import ArtifactViewer from './ArtifactViewer';
 
 export default function HolderDashboard() {
-    const { currentUser, registerUser, submitPortfolio, ledger, users, login } = useLedgerStore();
+    const { currentUser, registerUser, submitPortfolio, ledger, users, login, forwardCredential } = useLedgerStore();
     const [files, setFiles] = useState<File[]>([]);
     const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success'>('idle');
     const [viewingArtifact, setViewingArtifact] = useState<string | null>(null);
+    const [selectedOrgDid, setSelectedOrgDid] = useState('');
+    const [orgSearchTerm, setOrgSearchTerm] = useState('');
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [forwardingVC, setForwardingVC] = useState<any | null>(null);
+    const [verifierSearch, setVerifierSearch] = useState('');
+    const [forwardMessage, setForwardMessage] = useState('');
+    const [selectedVerifierDid, setSelectedVerifierDid] = useState('');
+    const [showVerifierSuggestions, setShowVerifierSuggestions] = useState(false);
 
     const existingHolders = users.filter(u => u.role === 'HOLDER');
 
@@ -22,7 +30,7 @@ export default function HolderDashboard() {
                     <p className="text-gray-500">Generate your Decentralized Identity to begin.</p>
                 </div>
 
-                <Button onClick={() => registerUser('HOLDER')} className="gap-2">
+                <Button onClick={() => registerUser('STUDENT', 'HOLDER', { name: 'New Student', dob: '', email: '' })} className="gap-2">
                     <Wallet className="w-4 h-4" />
                     Generate New DID
                 </Button>
@@ -63,7 +71,7 @@ export default function HolderDashboard() {
     };
 
     const handleSubmit = async () => {
-        if (files.length === 0) return;
+        if (files.length === 0 || !selectedOrgDid) return;
         setUploadStatus('uploading');
 
         // Read all files
@@ -79,10 +87,12 @@ export default function HolderDashboard() {
         });
 
         const artifactDataArray = await Promise.all(filePromises);
-        submitPortfolio(artifactDataArray);
+        submitPortfolio(artifactDataArray, selectedOrgDid);
         setUploadStatus('success');
         setTimeout(() => setUploadStatus('idle'), 2000);
         setFiles([]);
+        setSelectedOrgDid('');
+        setOrgSearchTerm('');
     };
 
     const handleCopyCredential = (credential: any) => {
@@ -90,6 +100,28 @@ export default function HolderDashboard() {
         navigator.clipboard.writeText(json);
         alert("Credential JSON copied to clipboard!");
     };
+
+    const handleForwardCredential = (verifierDid: string) => {
+        if (!forwardingVC) return;
+        forwardCredential(verifierDid, forwardingVC, forwardMessage);
+        alert(`Credential ${forwardingVC.id.substring(0, 10)}... forwarded successfully!`);
+        setForwardingVC(null);
+        setForwardMessage('');
+        setVerifierSearch('');
+        setSelectedVerifierDid('');
+        setShowVerifierSuggestions(false);
+    };
+
+    const organizations = users.filter(u => u.type === 'ORGANIZATION');
+    const filteredOrgs = organizations.filter(o =>
+        (o.profile as any).name.toLowerCase().includes(orgSearchTerm.toLowerCase()) ||
+        o.did.toLowerCase().includes(orgSearchTerm.toLowerCase())
+    );
+
+    const filteredVerifiers = organizations.filter(o =>
+        (o.profile as any).name.toLowerCase().includes(verifierSearch.toLowerCase()) ||
+        o.did.toLowerCase().includes(verifierSearch.toLowerCase())
+    );
 
 
 
@@ -194,9 +226,51 @@ export default function HolderDashboard() {
                                 ))}
                             </div>
                         )}
+
+                        <div className="space-y-2 relative">
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Search Organization to Send To</label>
+                            <Input
+                                placeholder="Type Name or DID..."
+                                value={orgSearchTerm}
+                                onChange={(e) => {
+                                    setOrgSearchTerm(e.target.value);
+                                    setShowSuggestions(true);
+                                    if (selectedOrgDid) setSelectedOrgDid('');
+                                }}
+                                onFocus={() => setShowSuggestions(true)}
+                            />
+                            {showSuggestions && orgSearchTerm && (
+                                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-[200px] overflow-y-auto">
+                                    {filteredOrgs.map(org => (
+                                        <div
+                                            key={org.did}
+                                            className="p-3 hover:bg-blue-50 cursor-pointer transition-colors border-b last:border-0 text-left"
+                                            onClick={() => {
+                                                setOrgSearchTerm((org.profile as any).name);
+                                                setSelectedOrgDid(org.did);
+                                                setShowSuggestions(false);
+                                            }}
+                                        >
+                                            <p className="text-sm font-bold text-gray-900">{(org.profile as any).name}</p>
+                                            <p className="text-[10px] text-gray-500 font-mono">{org.did}</p>
+                                        </div>
+                                    ))}
+                                    {filteredOrgs.length === 0 && (
+                                        <p className="p-4 text-xs text-center text-gray-400">No organizations found</p>
+                                    )}
+                                </div>
+                            )}
+                            {selectedOrgDid && !showSuggestions && (
+                                <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
+                                    <CheckCircle className="w-4 h-4 text-blue-600" />
+                                    <span className="text-xs font-medium text-blue-800">Selected: {(organizations.find(o => o.did === selectedOrgDid)?.profile as any)?.name}</span>
+                                </div>
+                            )}
+                        </div>
+
                         <Button
                             className="w-full"
-                            disabled={files.length === 0 || uploadStatus === 'uploading'}
+                            disabled={files.length === 0 || !selectedOrgDid || uploadStatus === 'uploading'}
                             onClick={handleSubmit}
                         >
                             {uploadStatus === 'uploading' ? 'Hashing & Submitting...' : 'Submit to Ledger'}
@@ -274,17 +348,25 @@ export default function HolderDashboard() {
                                             </div>
                                             <div className="flex gap-2">
                                                 {item.type === 'verified' && (
-                                                    <>
+                                                    <div className="flex gap-1">
+                                                        <Button
+                                                            variant="ghost"
+                                                            className="h-8 w-8 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-100"
+                                                            onClick={() => setForwardingVC(item.credential)}
+                                                            title="Forward to Verifier"
+                                                        >
+                                                            <Share2 className="w-4 h-4" />
+                                                        </Button>
                                                         <Button
                                                             variant="ghost"
                                                             className="h-8 w-8 p-0 text-green-700 hover:text-green-900 hover:bg-green-200"
                                                             onClick={() => handleCopyCredential(item.credential)}
-                                                            title="Copy Credential JSON"
+                                                            title="Copy JSON"
                                                         >
-                                                            <Share2 className="w-4 h-4" />
+                                                            <FileText className="w-4 h-4" />
                                                         </Button>
                                                         <CheckCircle className="w-5 h-5 text-green-600 mt-1.5" />
-                                                    </>
+                                                    </div>
                                                 )}
                                                 {item.type === 'pending' && (
                                                     <div className="w-5 h-5 rounded-full border-2 border-yellow-400 border-t-transparent animate-spin mt-1.5" />
@@ -311,6 +393,90 @@ export default function HolderDashboard() {
                     {mySubmissions.length === 0 && <span className="text-gray-600">// No activity recorded</span>}
                 </div>
             </div>
+
+            {/* Forwarding Modal */}
+            {forwardingVC && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
+                        <h3 className="text-xl font-bold mb-4">Forward Credential</h3>
+                        <p className="text-sm text-gray-500 mb-4">Select a Verifier (Organization) to send your {forwardingVC.id.substring(0, 10)}... directly.</p>
+
+                        <div className="relative mb-4">
+                            <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Find Verifier</label>
+                            <Input
+                                placeholder="Type Name or DID..."
+                                value={verifierSearch}
+                                onChange={(e) => {
+                                    setVerifierSearch(e.target.value);
+                                    setShowVerifierSuggestions(true);
+                                    if (selectedVerifierDid) setSelectedVerifierDid('');
+                                }}
+                                onFocus={() => setShowVerifierSuggestions(true)}
+                                className="mb-1"
+                            />
+                            {showVerifierSuggestions && verifierSearch && (
+                                <div className="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-[150px] overflow-y-auto">
+                                    {organizations
+                                        .filter(org =>
+                                            org.profile.name.toLowerCase().includes(verifierSearch.toLowerCase()) ||
+                                            org.did.toLowerCase().includes(verifierSearch.toLowerCase())
+                                        )
+                                        .map(org => (
+                                            <div
+                                                key={org.did}
+                                                className="p-3 hover:bg-blue-50 cursor-pointer transition-colors border-b last:border-0 text-left"
+                                                onClick={() => {
+                                                    setVerifierSearch(org.profile.name);
+                                                    setSelectedVerifierDid(org.did);
+                                                    setShowVerifierSuggestions(false);
+                                                }}
+                                            >
+                                                <p className="text-sm font-bold text-gray-900">{org.profile.name}</p>
+                                                <p className="text-[10px] text-gray-500 font-mono truncate">{org.did}</p>
+                                            </div>
+                                        ))
+                                    }
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Attach a Message</label>
+                            <Textarea
+                                placeholder="Why are you sending this? (e.g. Job Application)"
+                                value={forwardMessage}
+                                onChange={(e) => setForwardMessage(e.target.value)}
+                                className="min-h-[80px]"
+                            />
+                        </div>
+
+                        <div className="space-y-3">
+                            <Button
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6"
+                                disabled={!selectedVerifierDid}
+                                onClick={() => handleForwardCredential(selectedVerifierDid)}
+                            >
+                                <Share2 className="w-4 h-4 mr-2" />
+                                {selectedVerifierDid ? `Confirm Forward` : 'Select a Verifier'}
+                            </Button>
+
+                            <Button
+                                variant="outline"
+                                className="w-full"
+                                onClick={() => {
+                                    setForwardingVC(null);
+                                    setForwardMessage('');
+                                    setVerifierSearch('');
+                                    setSelectedVerifierDid('');
+                                    setShowVerifierSuggestions(false);
+                                }}
+                            >
+                                Cancel
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <ArtifactViewer
                 isOpen={!!viewingArtifact}

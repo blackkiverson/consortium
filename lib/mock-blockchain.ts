@@ -1,10 +1,24 @@
 import { generateKeyPair, hashData, signData, verifySignature } from './crypto';
 
+export interface StudentProfile {
+    name: string;
+    dob: string;
+    email: string;
+}
+
+export interface OrganizationProfile {
+    name: string;
+    address: string;
+    registrationId: string;
+}
+
 export interface User {
     did: string;
+    type: 'STUDENT' | 'ORGANIZATION';
     role: 'HOLDER' | 'ISSUER' | 'VERIFIER';
     publicKey: string;
     privateKey: string; // In a real app, keep this hidden
+    profile: StudentProfile | OrganizationProfile;
 }
 
 export interface Credential {
@@ -23,7 +37,7 @@ export interface Credential {
 }
 
 export interface LedgerTransaction {
-    type: 'DID_REGISTRATION' | 'PORTFOLIO_SUBMISSION' | 'VC_ISSUANCE';
+    type: 'DID_REGISTRATION' | 'PORTFOLIO_SUBMISSION' | 'VC_ISSUANCE' | 'CREDENTIAL_FORWARD';
     timestamp: number;
     dataHash: string;
     actor: string;
@@ -40,6 +54,18 @@ export class MockBlockchainService {
 
     constructor() {
         console.log("Mock Blockchain Service Initialized");
+        this.initializeMockData();
+    }
+
+    private initializeMockData() {
+        // Mock Students
+        this.registerDID('STUDENT', 'HOLDER', { name: 'Alice Johnson', dob: '2002-05-15', email: 'alice@example.edu' });
+        this.registerDID('STUDENT', 'HOLDER', { name: 'Bob Smith', dob: '2001-11-20', email: 'bob@example.edu' });
+
+        // Mock Organizations
+        this.registerDID('ORGANIZATION', 'ISSUER', { name: 'Consortium University', address: '123 Edu Lane', registrationId: 'UNIV-001' });
+        this.registerDID('ORGANIZATION', 'ISSUER', { name: 'Global Tech Institute', address: '456 Innovation Blvd', registrationId: 'TECH-002' });
+        this.registerDID('ORGANIZATION', 'VERIFIER', { name: 'Future Employers Inc', address: '789 Career Way', registrationId: 'CORP-003' });
     }
 
     // --- Core Ledger Methods ---
@@ -58,11 +84,15 @@ export class MockBlockchainService {
 
     // --- Actor Actions ---
 
-    registerDID(role: 'HOLDER' | 'ISSUER' | 'VERIFIER'): User {
+    registerDID(
+        type: 'STUDENT' | 'ORGANIZATION',
+        role: 'HOLDER' | 'ISSUER' | 'VERIFIER',
+        profile: StudentProfile | OrganizationProfile
+    ): User {
         const { publicKey, privateKey } = generateKeyPair();
         const did = `did:consortium:${hashData(publicKey).substring(0, 16)}`;
 
-        const user: User = { did, role, publicKey, privateKey };
+        const user: User = { did, type, role, publicKey, privateKey, profile };
         this.users.set(did, user);
         this.didRegistry.set(did, publicKey);
 
@@ -71,13 +101,13 @@ export class MockBlockchainService {
             timestamp: Date.now(),
             dataHash: hashData(did + publicKey),
             actor: did,
-            details: { role }
+            details: { role, profile }
         });
 
         return user;
     }
 
-    submitPortfolio(holderDid: string, artifactDataArray: Array<{ data: string; filename: string }>): string {
+    submitPortfolio(holderDid: string, artifactDataArray: Array<{ data: string; filename: string }>, targetOrgDid: string): string {
         // 1. Hash all artifacts combined
         const combinedData = artifactDataArray.map(a => a.data).join('');
         const artifactHash = hashData(combinedData);
@@ -88,7 +118,7 @@ export class MockBlockchainService {
             timestamp: Date.now(),
             dataHash: artifactHash,
             actor: holderDid,
-            details: { artifactHash, artifactDataArray } // Store all files
+            details: { artifactHash, artifactDataArray, targetOrgDid } // Store all files and target org
         });
 
         return artifactHash;
@@ -180,6 +210,26 @@ export class MockBlockchainService {
         } catch {
             return { verified: false, reason: "Invalid JSON Format" };
         }
+    }
+
+    forwardCredential(holderDid: string, verifierDid: string, credential: Credential, message: string): string {
+        const timestamp = Date.now();
+        const dataHash = hashData(JSON.stringify(credential) + timestamp);
+
+        // Record the forwarding on the ledger
+        this.recordTransaction({
+            type: 'CREDENTIAL_FORWARD',
+            timestamp,
+            dataHash,
+            actor: holderDid,
+            details: {
+                verifierDid,
+                credential,
+                message
+            }
+        });
+
+        return dataHash;
     }
 
     // --- Helper ---
