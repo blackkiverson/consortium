@@ -4,7 +4,7 @@ import { MockBlockchainService, User, LedgerTransaction, Credential, StudentProf
 interface LedgerState {
     blockchain: MockBlockchainService;
     currentUser: User | null;
-    currentView: 'HOLDER' | 'ISSUER' | 'VERIFIER' | 'HOME';
+    currentView: 'HOLDER' | 'ISSUER' | 'VERIFIER' | 'HOME' | 'EXPLORER';
 
     // Reactive state copies for UI rendering
     ledger: LedgerTransaction[];
@@ -13,7 +13,7 @@ interface LedgerState {
 
     // Actions
     init: () => void;
-    switchView: (view: 'HOLDER' | 'ISSUER' | 'VERIFIER' | 'HOME') => void;
+    switchView: (view: 'HOLDER' | 'ISSUER' | 'VERIFIER' | 'HOME' | 'EXPLORER') => void;
     registerUser: (
         type: 'STUDENT' | 'ORGANIZATION',
         role: 'HOLDER' | 'ISSUER' | 'VERIFIER',
@@ -22,10 +22,23 @@ interface LedgerState {
     login: (did: string) => void;
     logout: () => void;
     switchOrganizationRole: (role: 'ISSUER' | 'VERIFIER') => void;
-    submitPortfolio: (artifactDataArray: Array<{ data: string; filename: string }>, targetOrgDid: string) => void;
-    mintCredential: (holderDid: string, artifactHash: string, issuerAttachmentsArray?: Array<{ data: string; filename: string }>) => void;
+    submitPortfolio: (artifactDataArray: Array<{ data: string; filename: string }>, targetOrgDid: string, coverLetter?: string) => void;
+    mintCredential: (
+        holderDid: string,
+        artifactHash: string,
+        issuerAttachmentsArray?: Array<{ data: string; filename: string }>,
+        credentialType?: string,
+        metadata?: Record<string, string>,
+        issuerNote?: string,
+        expiryDate?: string
+    ) => void;
+    sendMessage: (toDid: string, content: string, contextRef?: string) => void;
+    rejectSubmission: (holderDid: string, artifactHash: string, reason: string) => void;
+    revokeCredential: (credentialId: string) => void;
+    recordCredentialDecision: (credentialId: string, decision: 'ACCEPTED' | 'DECLINED', notes: string) => void;
     verifyCredential: (json: string) => { verified: boolean; reason?: string; issuer?: string };
     forwardCredential: (verifierDid: string, credential: Credential, message: string) => void;
+    clearAndReset: () => void;
 
     // Helper to sync state from service
     sync: () => void;
@@ -52,7 +65,6 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     users: [],
 
     init: () => {
-        // Initialize with some dummy data or just ensure service is ready
         get().sync();
     },
 
@@ -101,30 +113,58 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     switchOrganizationRole: (role) => {
         const { currentUser } = get();
         if (currentUser && currentUser.type === 'ORGANIZATION') {
-            set((state) => ({
+            set({
                 currentUser: { ...currentUser, role },
                 currentView: role as 'ISSUER' | 'VERIFIER'
-            }));
+            });
         }
     },
 
-    submitPortfolio: (artifactDataArray, targetOrgDid) => {
+    submitPortfolio: (artifactDataArray, targetOrgDid, coverLetter?) => {
         const { blockchain, currentUser } = get();
         if (!currentUser || currentUser.role !== 'HOLDER') {
             console.error("Only Holders can submit portfolios");
             return;
         }
-        blockchain.submitPortfolio(currentUser.did, artifactDataArray, targetOrgDid);
+        blockchain.submitPortfolio(currentUser.did, artifactDataArray, targetOrgDid, coverLetter);
         get().sync();
     },
 
-    mintCredential: (holderDid, artifactHash, issuerAttachmentsArray?) => {
+    mintCredential: (holderDid, artifactHash, issuerAttachmentsArray?, credentialType?, metadata?, issuerNote?, expiryDate?) => {
         const { blockchain, currentUser } = get();
         if (!currentUser || currentUser.role !== 'ISSUER') {
             console.error("Only Issuers can mint credentials");
             return;
         }
-        blockchain.mintCredential(currentUser.did, holderDid, artifactHash, currentUser.privateKey, issuerAttachmentsArray);
+        blockchain.mintCredential(currentUser.did, holderDid, artifactHash, currentUser.privateKey, issuerAttachmentsArray, credentialType, metadata, issuerNote, expiryDate);
+        get().sync();
+    },
+
+    sendMessage: (toDid, content, contextRef?) => {
+        const { blockchain, currentUser } = get();
+        if (!currentUser) return;
+        blockchain.sendMessage(currentUser.did, toDid, content, contextRef);
+        get().sync();
+    },
+
+    rejectSubmission: (holderDid, artifactHash, reason) => {
+        const { blockchain, currentUser } = get();
+        if (!currentUser || currentUser.role !== 'ISSUER') return;
+        blockchain.rejectSubmission(currentUser.did, holderDid, artifactHash, reason);
+        get().sync();
+    },
+
+    revokeCredential: (credentialId) => {
+        const { blockchain, currentUser } = get();
+        if (!currentUser || currentUser.role !== 'ISSUER') return;
+        blockchain.revokeCredential(currentUser.did, credentialId);
+        get().sync();
+    },
+
+    recordCredentialDecision: (credentialId, decision, notes) => {
+        const { blockchain, currentUser } = get();
+        if (!currentUser) return;
+        blockchain.recordCredentialDecision(currentUser.did, credentialId, decision, notes);
         get().sync();
     },
 
@@ -140,6 +180,20 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
             return;
         }
         blockchain.forwardCredential(currentUser.did, verifierDid, credential, message);
+        get().sync();
+    },
+
+    clearAndReset: () => {
+        const { blockchain } = get();
+        blockchain.clearStorage();
+        // Recreate the blockchain instance to reinitialize with fresh mock data
+        const freshBlockchain = new MockBlockchainService();
+        set({
+            blockchain: freshBlockchain,
+            currentUser: null,
+            currentView: 'HOME',
+            verificationHistory: [],
+        });
         get().sync();
     },
 
